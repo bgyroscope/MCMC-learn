@@ -1,114 +1,184 @@
-"""
-    Functions that are used to test a sampler. 
+""" Functions that are used to test a sampler. 
+
+    _2 indicates rather than the sample from distribution itself, 
+    the average of a set n_avg samples 
+    
 """
 from scipy.stats import expon, norm
 import numpy as np 
 import matplotlib.pyplot as plt
 
 # Declarations:
-N_DISPLAY = 20 
-MAX_N = 500
+N_SAMPLE = 10
+N_FRAMES = 20 
+MAX_N = 1000
 N_BINS = 100
 
-def sample(func, max_n=MAX_N, n_display=N_DISPLAY, n_avg=1):
-    """
-        Take a set of samples of average n_avg from pdf function
+class SamplerTester:
 
-        Argument:
-            func - returns an np array of n number of samples 
+    def __init__(self, 
+            sampler_func,
+            pdf_func, 
+            n_avg=N_SAMPLE,
+            max_n = MAX_N, 
+            n_bins = N_BINS,
+            n_frames = N_FRAMES
+            ):
+        """
+            Class to test the sampler and pdf functions
 
-        Return  
-            n_disp (list) - list of number of samples to that point
-            samples (np arr) - np array of the samples taken
-    """
-    n_disp = [round(max_n/n_display)*i for i in range(1,n_display+1)]
-    samp = [ np.mean(func(n_avg)) for i in range(n_disp[-1])  ]
-    return n_disp, samp 
+            Args:
+                sampler_func (function): returns a sample from the distribution   
+                pdf_func (function): returns P(x), expecting pdf_func(x)   
+                n_avg (int): sample size 
+                max_n (int): max number of samples 
+                n_bins (int): number of bins to display data in 
+                n_frames (int): number of animation frames 
 
-def get_bin_edges(samples, n_bins=N_BINS):
-    x = np.linspace(min(samples), max(samples), n_bins)
-    dx = x[1] - x[0]
-    bin_edges = x
-    bin_edges = np.append(bin_edges, x[-1] + dx)
-    bin_edges -= dx * 0.5 
+            Returns:
+                None 
+        """
+        self.sampler = sampler_func
+        self.pdf = pdf_func
+        self.n_avg = n_avg
+        self.n_bins = n_bins
 
-    return bin_edges
+        # get the display numbers 
+        self.n_disp = [round(max_n/n_frames)*i for i in range(1,n_frames+1)]
+        self.max_n = self.n_disp[-1]
 
-def discretize_space(samples):
-    bin_edges = get_bin_edges(samples) 
-    x = (bin_edges[1:] + bin_edges[0:-1])/2 
+        # get the samples 
+        self.samp = [ self.sampler() for i in range(self.max_n)]
+        self.samp_2 = [ np.mean([self.sampler() for i in range(self.n_avg)]) for i in range(self.max_n) ]
 
-    return bin_edges, x 
+        # get the bins
+        self.bins, self.x = self.discretize_space(self.samp) 
+        self.bins_2, self.x_2 = self.discretize_space(self.samp_2) 
 
-def update_dist_plot(ax,n,samples,bin_edges,x,pdf, title):
-    """
-        update the plot with the new number of samples  
-    """
-    ax.cla() 
-    dist,_,__ = ax.hist(samples[:n],bins=bin_edges, density=True)
-    pdf_dist = ax.plot(x, pdf, 'r')
+        # pdfs
+        self.pdf = [pdf_func(x_i) for x_i in self.x]
 
-    ax.set_title(title)
-    ax.set_xlabel('x')
-    ax.set_ylabel('P(x)')
-    
-    # r2 error 
-    ss_res = np.sum((dist - pdf)**2)
-    ss_tot = np.sum((dist - np.mean(dist))**2)
-    r2 = 1.0 - ss_res / ss_tot
+        self.mu = np.mean(self.samp)
+        self.sig = np.std(self.samp)
+        self.pdf_2 = norm.pdf(self.x_2,loc=self.mu,scale=self.sig/np.sqrt(n_avg))
 
-    return ax, r2
+        # set up r2 arrays 
+        self.r2_arr = [np.nan for i in range(len(self.n_disp))]
+        self.r2_arr_2 = [np.nan for i in range(len(self.n_disp))]
 
-def update_r2_plot(ax, n_disp,r2_arr):
-    """
-        update the r2 plot  
-    """
-    ax.plot(n_disp, r2_arr, color='k')
+    def __str__(self):
+        return f"Testing distribution with mu={self.mu}, sig={self.sig}, for n={self.n_avg} "
 
-    ax.set_xlabel('n')
-    ax.set_ylabel('$R^2$')
+    # get the bin edges and x 
+    def get_bin_edges(self,samples):
+        x = np.linspace(min(samples), max(samples), self.n_bins)
+        dx = x[1] - x[0]
+        bin_edges = x
+        bin_edges = np.append(bin_edges, x[-1] + dx)
+        bin_edges -= dx * 0.5 
 
-    return ax
+        return bin_edges
 
+    def discretize_space(self,samples):
+        bin_edges = self.get_bin_edges(samples) 
+        x = (bin_edges[1:] + bin_edges[0:-1])/2 
 
+        return bin_edges, x 
 
+    def init_plot(self):
+        self.fig, self.ax = plt.subplots(2,2, figsize=(8,6))  
 
-if __name__ == '__main__':
+        # draw dummy axes for all 
+        # Distribution 
+        dist,edges,self.patches = self.ax[0,0].hist([],bins=self.bins,density=True)
+        self.pdf_line, = self.ax[0,0].plot(self.x,self.pdf,'r') 
 
-    mu = 1.2
-    n_avg = 10 
+        self.ax[0,0].set_title('Distribution')
+        self.ax[0,0].set_xlabel('x')
+        self.ax[0,0].set_ylabel('P(x)')
 
-    # from distribution 
-    n_disp, samples = sample(lambda x: expon.rvs(scale=mu, size=x), n_avg=1)
-    bin_edges, x = discretize_space(samples)
-    pdf = expon.pdf(x,scale=mu) 
-    r2_arr = [np.nan for i in range(len(n_disp))]
+        # Distribution r2
+        self.r2_line, = self.ax[1,0].plot(self.n_disp, self.r2_arr, 'k')
 
-    # for set of samples 
-    n_disp, samples_set = sample(lambda x: expon.rvs(scale=mu, size=x), n_avg=n_avg)
-    bin_edges_set, x_set = discretize_space(samples_set)
-    pdf_set = norm.pdf(x_set,loc=mu, scale=mu/np.sqrt(n_avg)) 
-    r2_arr_set = [np.nan for i in range(len(n_disp))]
+        self.ax[1,0].set_xlabel('n')
+        self.ax[1,0].set_ylabel('$R^2$')
+        self.ax[1,0].set_xlim(0,self.max_n)
+        self.ax[1,0].set_ylim(0,1)
 
+        # Sample Average Distribution 
+        dist,edges,self.patches_2 = self.ax[0,1].hist([],bins=self.bins_2,density=True)
+        self.pdf_line_2, = self.ax[0,1].plot(self.x_2,self.pdf_2,'r') 
 
-    plt.ion()
-    fig, ax = plt.subplots(2,2)
+        self.ax[0,1].set_title(f'Distribution of Sample Averages ({self.n_avg})')
+        self.ax[0,1].set_xlabel('x')
 
-    for i,n in enumerate(n_disp):
+        # Sample Average Distribution r2
+        self.r2_line_2, = self.ax[1,1].plot(self.n_disp, self.r2_arr_2, 'k')
 
-        ax[0,0], r2_arr[i] = update_dist_plot(ax[0,0],n,samples,bin_edges,x,pdf, 'Samples')
-        ax[1,0] = update_r2_plot(ax[1,0], n_disp, r2_arr)
-
-        ax[0,1], r2_arr_set[i] = update_dist_plot(ax[0,1],n,samples_set,bin_edges_set,x_set,pdf_set, f'Sample Means (n={n_avg})')
-        ax[1,1] = update_r2_plot(ax[1,1], n_disp, r2_arr_set)
-
+        self.ax[1,1].set_xlabel('n sample averages')
+        self.ax[1,1].set_xlim(0,self.max_n)
+        self.ax[1,1].set_ylim(0,1)
 
         plt.tight_layout() 
-        plt.pause(0.05)
 
-    plt.ioff() 
-    plt.show() 
+    def update_plot(self,i,n):
+
+        # Distribution 
+        dist, _ = np.histogram(self.samp[:n],bins=self.bins,density=True)
+        for h, patch in zip(dist, self.patches):
+            patch.set_height(h)
+        self.ax[0,0].set_ylim(0,max(dist)*1.1)
+
+        # Distribution r2
+        ss_res = np.sum((dist - self.pdf)**2)
+        ss_tot = np.sum((dist - np.mean(dist))**2)
+        self.r2_arr[i] = 1.0 - ss_res / ss_tot
+        self.r2_line.set_data(self.n_disp, self.r2_arr)
+
+        # Sample Average Distribution 
+        dist, _ = np.histogram(self.samp_2[:n],bins=self.bins_2,density=True)
+        for h, patch in zip(dist, self.patches_2):
+            patch.set_height(h)
+        self.ax[0,1].set_ylim(0,max(dist)*1.1)
+
+        # Distribution r2
+        ss_res = np.sum((dist - self.pdf_2)**2)
+        ss_tot = np.sum((dist - np.mean(dist))**2)
+        self.r2_arr_2[i] = 1.0 - ss_res / ss_tot
+        self.r2_line_2.set_data(self.n_disp, self.r2_arr_2)
+
+        self.fig.canvas.draw() 
+        self.fig.canvas.flush_events() 
 
 
+    def plot(self):
+        plt.ion() 
+        self.init_plot() 
+
+        for i,n in enumerate(self.n_disp):
+            self.update_plot(i,n) 
+            plt.pause(0.05)
+
+        plt.ioff() 
+        plt.show() 
+
+if __name__ == '__main__':
+    
+    # --- exponential ---
+    mu = 2
+    samp_func = lambda: expon.rvs(scale=mu,size=1)
+    pdf_func = lambda x: expon.pdf(x,scale=mu) 
+
+
+    # # # --- normal ---
+    # mu = 20
+    # sig = 2
+    # samp_func = lambda: norm.rvs(loc=mu, scale=sig,size=1)
+    # pdf_func = lambda x: norm.pdf(x,loc=mu, scale=sig) 
+
+    st = SamplerTester(samp_func,pdf_func)
+
+    print('Plotting the results.')
+    st.plot() 
 
 
