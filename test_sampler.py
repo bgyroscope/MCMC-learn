@@ -85,8 +85,11 @@ class SamplerTester:
 
         return bin_edges, x 
 
-    def init_plot(self):
+    def init_plot(self, suptitle=None):
         self.fig, self.ax = plt.subplots(2,2, figsize=(8,6))  
+
+        if suptitle:
+            self.fig.suptitle(suptitle)
 
         # draw dummy axes for all 
         # Distribution 
@@ -109,7 +112,7 @@ class SamplerTester:
         dist,edges,self.patches_2 = self.ax[0,1].hist([],bins=self.bins_2,density=True)
         self.pdf_line_2, = self.ax[0,1].plot(self.x_2,self.pdf_2,'r') 
 
-        self.ax[0,1].set_title(f'Distribution of Sample Averages ({self.n_avg})')
+        self.ax[0,1].set_title(f'Distribution of Sample Averages (n={self.n_avg})')
         self.ax[0,1].set_xlabel('x')
 
         # Sample Average Distribution r2
@@ -151,16 +154,31 @@ class SamplerTester:
         self.fig.canvas.flush_events() 
 
 
-    def plot(self):
+    def plot(self, save_loc=None, suptitle=None, 
+            save_frames=False, frame_path='img_{:03d}.png'):
+        """
+            plot the sampler tester 
+
+            Args:
+                save_loc (str) - path to save final image 
+        """
         plt.ion() 
-        self.init_plot() 
+        self.init_plot(suptitle=suptitle) 
 
         for i,n in enumerate(self.n_disp):
             self.update_plot(i,n) 
+            if save_frames:
+                plt.savefig(frame_path.format(i)) 
+
             plt.pause(0.05)
 
         plt.ioff() 
-        plt.show() 
+
+        if save_loc:
+            plt.savefig(save_loc)
+
+        else:
+            plt.show() 
 
 if __name__ == '__main__':
     
